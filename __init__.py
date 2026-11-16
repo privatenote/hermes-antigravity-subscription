@@ -17,6 +17,7 @@ try:
         _MODEL_ALIASES,
         _cached_catalog,
         _heuristic_efforts,
+        _is_orchestrator_model,
         load_catalog,
         model_efforts,
         resolve_model_alias,
@@ -30,6 +31,7 @@ except ImportError:
         _MODEL_ALIASES,
         _cached_catalog,
         _heuristic_efforts,
+        _is_orchestrator_model,
         load_catalog,
         model_efforts,
         resolve_model_alias,
@@ -58,6 +60,8 @@ class AntigravitySubscriptionDirectSDKProfile(ProviderProfile):
         Claude take low/medium/high, Gemini Pro low/high, gpt-oss medium only.
         """
         name = (model or "").strip()
+        if _is_orchestrator_model(name):
+            return ()
         catalog = _cached_catalog()
         resolved_name = resolve_model_alias(name, catalog)
         base, suffix_effort = split_effort_suffix(resolved_name)
@@ -101,9 +105,7 @@ class AntigravitySubscriptionDirectSDKProfile(ProviderProfile):
         the effort table that `resolve_model_and_effort` reads.
         """
         catalog = load_catalog(timeout=timeout)
-        if catalog:
-            return list(catalog)
-        return list(_FALLBACK_MODELS)
+        return [model for model in (catalog or _FALLBACK_MODELS) if not _is_orchestrator_model(model)]
 
     def get_model_context_length(self, model: str) -> int | None:
         """Declared context window for Antigravity CLI.

@@ -12,7 +12,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Efforts that `agy --effort` accepts, per base model. A model that agy lists
-# as `<base>-low|medium|high` takes --effort; a model it lists by bare name
+# with an effort suffix takes --effort; a model it lists by bare name
 # does not (agy 1.2.x rejects --effort for those, and rejects a missing
 # --effort for the others).
 #
@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # resolve without spawning a process, and covers the case where `agy models`
 # fails. An empty tuple means "bare name, no --effort".
 _KNOWN_EFFORTS: dict[str, tuple[str, ...]] = {
+    "gemini-4-hydrogen": ("low", "medium", "high", "xhigh"),
     "gemini-3.8-flash": ("low", "medium", "high"),
     "gemini-3.7-flash": ("low", "medium", "high"),
     "gemini-3.6-flash": ("low", "medium", "high"),
@@ -47,8 +48,8 @@ _MODEL_ALIASES = {
     "claude-opus-5-5": "claude-opus-4-6-thinking",
 }
 
-_EFFORT_SUFFIXES = (("-high", "high"), ("-medium", "medium"), ("-low", "low"))
-_EFFORT_RANK = {"low": 0, "medium": 1, "high": 2}
+_EFFORT_RANK = {"low": 0, "medium": 1, "high": 2, "xhigh": 3, "max": 4}
+_EFFORT_SUFFIXES = tuple((f"-{effort}", effort) for effort in reversed(_EFFORT_RANK))
 
 _SPINNER_CHARS = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 _SKIP_LINE_PREFIXES = ("error:", "usage:", "available models:", "warning:", "--")
@@ -65,9 +66,9 @@ def _normalize_effort(effort: str | None) -> str | None:
     e = str(effort).strip().lower()
     if e in ("none", "off", "minimal"):
         return "low"
-    if e in ("xhigh", "max", "ultra"):
+    if e == "ultra":
         return "high"
-    if e in ("low", "medium", "high"):
+    if e in _EFFORT_RANK:
         return e
     return "medium"
 
@@ -78,6 +79,10 @@ def split_effort_suffix(model: str) -> tuple[str, str | None]:
         if model.endswith(suffix):
             return model[: -len(suffix)], effort
     return model, None
+
+
+def _is_orchestrator_model(model: str) -> bool:
+    return model.strip().lower().startswith(("gemini-pro-orchestrator", "orchestrator"))
 
 
 def parse_catalog(text: str) -> dict[str, tuple[str, ...]]:
@@ -97,6 +102,8 @@ def parse_catalog(text: str) -> dict[str, tuple[str, ...]]:
             continue
         model_id = line.split()[0]
         if not re.match(r"^[a-zA-Z0-9_\-\.]+$", model_id):
+            continue
+        if _is_orchestrator_model(model_id):
             continue
         base, effort = split_effort_suffix(model_id)
         efforts = grouped.setdefault(base, [])
@@ -198,6 +205,9 @@ def resolve_model_alias(
     m = (model or "gemini-3.8-flash").strip()
     lower_m = m.lower()
 
+    if _is_orchestrator_model(lower_m):
+        return m  # Never fuzzy-route a disabled ID to another model.
+
     if catalog:
         # Exact match or base match already exists in catalog
         if lower_m in catalog:
@@ -253,6 +263,12 @@ def resolve_model_and_effort(
     by bare name; the client then omits --effort.
     """
     raw_model = str(model or "gemini-3.8-flash").strip()
+    if _is_orchestrator_model(raw_model):
+        raise ValueError(
+            "Orchestrator is disabled in Hermes: agy's planner/Hydrogen handoff "
+            "is not verified through this provider. Choose gemini-4-carbon, "
+            "gemini-4-argon, or gemini-4-hydrogen instead."
+        )
     catalog = _cached_catalog()
     if catalog is None:
         catalog = load_catalog(only_if_stale=True)
