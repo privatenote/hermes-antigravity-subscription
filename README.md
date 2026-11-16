@@ -152,6 +152,13 @@ The plugin also declares vision capability to Hermes' image router (`agent/model
 
 ## Ephemeral sessions and cleanup
 
+Local Hermes integration patch (2026-11-16): full worker replay preserves all tool
+results in the current task and every skill body still retained by Hermes. Delta
+delivery also preserves large new tool results intact. The legacy eight-result
+window and text caps apply only to older completed-task results; Hermes remains
+responsible for pruning current evidence and loaded skills. This prevents an
+unread parallel round from losing its first results before the model sees them.
+
 Every client runs `agy` with an isolated `HOME` inside a temp dir (`hermes_agy_*`); the user's real `~/.gemini` sessions, conversation index and brain are never touched. Cleanup layers:
 
 1. `close()` kills the worker and removes the temp dir plus any materialized media files.

@@ -61,6 +61,11 @@ def test_retained_skill_is_not_evicted_by_unrelated_tools_or_a_new_user_turn():
     assert bodies[0] in prompt
 
 
+def test_delta_keeps_large_new_result_and_its_middle_fact():
+    batch, bodies = round_messages(1, size=14000)
+    assert bodies[0] in _format_delta_prompt(batch)
+
+
 def test_core_pruned_skill_is_not_resurrected_from_external_state():
     batch, _ = round_messages(1, tool="skill_view")
     batch[-1]["content"] = "[SKILL_PRUNED: reload explicitly if needed]"

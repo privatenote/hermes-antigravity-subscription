@@ -977,12 +977,8 @@ def _format_delta_prompt(
         rendered_content = _render_message_content(msg.get("content"), media_sink)
         if role == "tool":
             tool_id = str(msg.get("tool_call_id") or msg.get("name") or "tool").strip()
-            if len(rendered_content) > 20000:
-                rendered_content = (
-                    rendered_content[:12000]
-                    + f"\n[... large tool output truncated: {len(rendered_content)} chars ...]\n"
-                    + rendered_content[-3000:]
-                )
+            # Every delta result is new evidence. Do not independently remove
+            # its middle after Hermes has already applied its context policy.
             parts.append(f"Tool Result ({tool_id}):\n{rendered_content}")
             continue
         if role == "assistant":

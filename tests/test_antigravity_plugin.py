@@ -412,13 +412,12 @@ class AntigravityPluginTests(unittest.TestCase):
         self.assertIn("START", prompt)
         self.assertIn("END", prompt)
 
-    def test_format_delta_prompt_large_tool_capped(self):
+    def test_format_delta_prompt_large_tool_preserved(self):
         from client import _format_delta_prompt
         tool_delta = [{"role": "tool", "tool_call_id": "t_big", "content": "HEAD" + ("Z" * 25000) + "TAIL"}]
         d_prompt = _format_delta_prompt(tool_delta)
-        self.assertIn("[... large tool output truncated: 25008 chars ...]", d_prompt)
-        self.assertIn("HEAD", d_prompt)
-        self.assertIn("TAIL", d_prompt)
+        self.assertIn("HEAD" + ("Z" * 25000) + "TAIL", d_prompt)
+        self.assertNotIn("large tool output truncated", d_prompt)
 
     def test_mock_stream_tool_call_suppresses_trailing_hallucination(self):
         # TemporaryDirectory (not /tmp): on Windows "/tmp" resolves to a
