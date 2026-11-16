@@ -811,13 +811,44 @@ def _format_messages_as_prompt(
         else set(tool_indices)
     )
 
+    # Hermes owns the context budget. Its current task results must reach the
+    # model intact, including a pending parallel round larger than our legacy
+    # eight-result history window. Otherwise a worker respawn silently erases
+    # evidence the model has not read yet and sends it back into discovery.
+    protected_tool_indices: set[int] = set()
+    if last_role == "tool" or recovery_turn:
+        task_start = next(
+            (i for i in range(len(prior_messages) - 1, -1, -1)
+             if str(prior_messages[i].get("role") or "").strip().lower() == "user"
+             and not _is_recovery_nudge(prior_messages[i])),
+            -1,
+        )
+        protected_tool_indices.update(i for i in tool_indices if i > task_start)
+
+    # A retained skill body remains authoritative until Hermes prunes it.
+    # Counting unrelated tool results must not make a loaded skill disappear.
+    skill_call_ids = {
+        call.get("id")
+        for message in prior_messages
+        for call in (message.get("tool_calls") or [])
+        if isinstance(call, dict)
+        and (call.get("function") or {}).get("name") == "skill_view"
+    }
+    protected_tool_indices.update(
+        i for i in tool_indices
+        if prior_messages[i].get("tool_call_id") in skill_call_ids
+        or prior_messages[i].get("name") == "skill_view"
+    )
+
     for i, message in enumerate(prior_messages):
         role = str(message.get("role") or "unknown").strip().lower()
         rendered_content = _render_message_content(message.get("content"))
 
         if role == "tool":
             tool_id = str(message.get("tool_call_id") or message.get("name") or "tool").strip()
-            if i not in recent_tool_cutoff and len(rendered_content) > _HISTORICAL_TOOL_MAX_CHARS:
+            if i in protected_tool_indices:
+                pass
+            elif i not in recent_tool_cutoff and len(rendered_content) > _HISTORICAL_TOOL_MAX_CHARS:
                 rendered_content = (
                     rendered_content[:200]
                     + f"\n[... tool output truncated: {len(rendered_content)} chars ...]\n"
