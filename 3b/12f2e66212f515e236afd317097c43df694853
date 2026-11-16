@@ -1,0 +1,25 @@
+README.md
+  s_1711b1d53f9eec::t_7c983b5f33f235 155-161
+prompt.py
+  s_1711b1d53f9eec::t_ab7337884e1655 980-981
+tests/test_antigravity_plugin.py
+  s_1711b1d53f9eec::t_db46bc3c49908f 415,419-420
+tests/test_current_task_tool_results.py
+  s_1711b1d53f9eec::t_7c01541c3a34c4 64-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3b12f2e66212f515e236afd317097c43df694853",
+  "prompts": {},
+  "sessions": {
+    "s_1711b1d53f9eec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1dd97-a40a-7770-8a8f-e2c5840c33e1",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Gyumin Sim <gyumin.sim@privatenote.co.kr>"
+    }
+  }
+}
