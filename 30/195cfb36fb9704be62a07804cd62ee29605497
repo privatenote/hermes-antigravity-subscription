@@ -1,0 +1,29 @@
+tests/test_protocol_diagnostics.py
+  s_1711b1d53f9eec::t_d49d21be7063bc 1-63
+  s_1711b1d53f9eec::t_2fdcceb66cb0fc 64-74
+debug.py
+  s_1711b1d53f9eec::t_d49d21be7063bc 6-7,21-59
+  s_1711b1d53f9eec::t_10a405fbbd9502 60-61
+stream.py
+  s_1711b1d53f9eec::t_d49d21be7063bc 19,31,836,949,968
+client.py
+  s_1711b1d53f9eec::t_2fdcceb66cb0fc 1024-1028,1030-1036,1077-1081
+docs/privatenote-transport-review.md
+  s_1711b1d53f9eec::t_2fdcceb66cb0fc 63-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "30195cfb36fb9704be62a07804cd62ee29605497",
+  "prompts": {},
+  "sessions": {
+    "s_1711b1d53f9eec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1dd97-a40a-7770-8a8f-e2c5840c33e1",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Gyumin Sim <gyumin.sim@privatenote.co.kr>"
+    }
+  }
+}
