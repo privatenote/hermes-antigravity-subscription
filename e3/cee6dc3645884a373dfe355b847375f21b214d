@@ -1,0 +1,26 @@
+tests/test_async_compat.py
+  s_1711b1d53f9eec::t_91a233a0d0e24c 724,729-730,739-740
+tests/test_stream_deadline.py
+  s_1711b1d53f9eec::t_45c3808733a6f6 1-65
+process.py
+  s_1711b1d53f9eec::t_0cbe6d4268ca8d 7,243-294
+  s_1711b1d53f9eec::t_276321d8003552 295-296
+stream.py
+  s_1711b1d53f9eec::t_0cbe6d4268ca8d 19,30,275,463-464,734-736,740,742-744,1196-1197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e3cee6dc3645884a373dfe355b847375f21b214d",
+  "prompts": {},
+  "sessions": {
+    "s_1711b1d53f9eec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1dd97-a40a-7770-8a8f-e2c5840c33e1",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Gyumin Sim <gyumin.sim@privatenote.co.kr>"
+    }
+  }
+}
