@@ -721,13 +721,13 @@ class AsyncStreamSemanticsTests(_PinnedSeamsMixin, unittest.TestCase):
             stream.close()
         self.assertTrue(read_threads)
         for name in read_threads:
-            self.assertTrue(name.startswith("agy-stream"), f"read ran on {name!r}")
+            self.assertEqual(name, "agy-turn-stdout", f"read ran on {name!r}")
         self.assertFalse(
             any(name.startswith(("asyncio_", "ThreadPoolExecutor-")) for name in read_threads),
             "a shared default-executor thread performed the blocking read",
         )
-        # Bounded thread growth: exactly one private executor thread performs
-        # the read, without spawning uncontrolled worker threads.
+        # One private executor consumes a bounded per-turn pipe reader.
+        # Neither operation uses the shared executor.
         self.assertTrue(read_thread_counts)
         for count in read_thread_counts:
             self.assertEqual(count, 1)
@@ -736,6 +736,8 @@ class AsyncStreamSemanticsTests(_PinnedSeamsMixin, unittest.TestCase):
         self.assertIsNotNone(stream_executor)
         self.assertEqual(stream_executor._max_workers, 1)
         self._assert_executor_threads_gone(stream_executor)
+        stream._stdout_reader._thread.join(1)
+        self.assertFalse(stream._stdout_reader._thread.is_alive())
 
 
 @unittest.skipIf(

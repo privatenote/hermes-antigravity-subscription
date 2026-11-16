@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from typing import Any, Iterator, NamedTuple
 
 try:
-    from .process import _check_early_quota_error
+    from .process import TurnStdoutReader, _check_early_quota_error
     from .prompt import (
         _TOOL_CALL_CLOSE,
         _find_tool_call_close,
@@ -27,7 +27,7 @@ try:
         media_reference_paths,
     )
 except ImportError:
-    from process import _check_early_quota_error
+    from process import TurnStdoutReader, _check_early_quota_error
     from prompt import (
         _TOOL_CALL_CLOSE,
         _find_tool_call_close,
@@ -272,6 +272,7 @@ class AntigravityStream(Iterator[Any]):
         self._interrupted = False
         self._finished = False
         self._early_error: str | None = None
+        self._stdout_reader: TurnStdoutReader | None = None
         self._generator = self._stream_generator()
         # Private single-thread executor for the async path, created lazily on
         # the first __anext__ (sync consumers never create one, and a retired
@@ -459,6 +460,8 @@ class AntigravityStream(Iterator[Any]):
         The operation order is identical to the pre-extraction ``close()``
         body; every invariant documented on the individual steps still holds.
         """
+        if self._stdout_reader is not None:
+            self._stdout_reader.close()
         if self.is_worker:
             # Terminate the worker only if it is still OURS. The interrupted
             # path runs at an arbitrary later time on an arbitrary thread --
@@ -728,16 +731,17 @@ class AntigravityStream(Iterator[Any]):
                 if self._early_error:
                     raise RuntimeError(f"Antigravity model error: {self._early_error}")
 
-                line = self.proc.stdout.readline() if self.proc.stdout else ""
+                if self._stdout_reader is None:
+                    self._stdout_reader = TurnStdoutReader(self.proc)
+                line = self._stdout_reader.readline(min(0.1, deadline - time.monotonic()))
                 if self._early_error:
                     raise RuntimeError(f"Antigravity model error: {self._early_error}")
 
-                if not line:
-                    if self.proc.poll() is not None:
-                        stop_reason = "stdout closed"
-                        break
-                    time.sleep(0.01)
+                if line is None:
                     continue
+                if not line:
+                    stop_reason = "stdout closed"
+                    break
 
                 last_stdout_at = time.monotonic()
                 if self.is_worker:
@@ -1189,6 +1193,8 @@ class AntigravityStream(Iterator[Any]):
             success = False
             raise
         finally:
+            if self._stdout_reader is not None:
+                self._stdout_reader.close()
             watchdog_stop.set()
             if watchdog_thread and watchdog_thread.is_alive():
                 watchdog_thread.join(timeout=0.2)

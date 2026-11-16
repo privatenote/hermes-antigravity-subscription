@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import queue
 import os
 import re
 import shutil
@@ -237,6 +238,60 @@ def start_stderr_drainer(proc: subprocess.Popen, max_chars: int = _DEFAULT_STDER
         with contextlib.suppress(Exception):
             proc._stderr_drainer = drainer
     return drainer
+
+
+class TurnStdoutReader:
+    """Read one agy turn without blocking the consumer's deadline.
+
+    Stop at the result event so this reader never consumes a subsequent turn
+    from a persistent worker. The queue is bounded even if the consumer stops.
+    """
+
+    def __init__(self, proc: subprocess.Popen):
+        self.proc = proc
+        self._lines: queue.Queue = queue.Queue(maxsize=64)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._read, name="agy-turn-stdout", daemon=True)
+        self._thread.start()
+
+    def _put(self, value: Any) -> None:
+        while not self._stop.is_set():
+            try:
+                self._lines.put(value, timeout=0.1)
+                return
+            except queue.Full:
+                continue
+
+    def _read(self) -> None:
+        try:
+            while not self._stop.is_set():
+                try:
+                    line = self.proc.stdout.readline() if self.proc.stdout else ""
+                except StopIteration:
+                    line = ""
+                self._put(line)
+                if not line:
+                    return
+                try:
+                    event = _json.loads(line)
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(event, dict) and event.get("event") == "result":
+                    return
+        except Exception as exc:
+            self._put(exc)
+
+    def readline(self, timeout: float) -> str | None:
+        try:
+            value = self._lines.get(timeout=max(0.001, timeout))
+        except queue.Empty:
+            return None
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    def close(self) -> None:
+        self._stop.set()
 
 
 def resolve_agy_command() -> str:
