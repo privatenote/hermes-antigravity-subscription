@@ -1,0 +1,32 @@
+tests/test_skill_handoff_state.py
+  s_1711b1d53f9eec::t_72431c3cfd2257 59-65
+  s_1711b1d53f9eec::t_45c3808733a6f6 1-58
+prompt.py
+  s_1711b1d53f9eec::t_c9c7d6a2ae0362 1072-1075
+  s_1711b1d53f9eec::t_b613c27573aacb 737,740,747,751-752,754-760,762
+  s_1711b1d53f9eec::t_408c6508137527 809-846,851-872,1033-1034,1083,1106
+  s_1711b1d53f9eec::t_1f3ad0e974b65d 713-725,734-736,741-746,748-750,761,763-765,767,770-771,918-920,942,1020
+  s_1711b1d53f9eec::t_72431c3cfd2257 847-850
+  s_1711b1d53f9eec::t_a193cee64a1a47 1098-1100,1155
+  s_1711b1d53f9eec::t_93e7c6972e995e 726-733,738-739,753,1008-1011,1138-1141
+  s_1711b1d53f9eec::t_378c11348ee8a9 1035
+tests/test_compaction_objective.py
+  s_1711b1d53f9eec::t_a193cee64a1a47 1-91
+  s_1711b1d53f9eec::t_b613c27573aacb 92-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "000e8491b2ba58078cc4bf9a6bb1ba4c72ce45f4",
+  "prompts": {},
+  "sessions": {
+    "s_1711b1d53f9eec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1dd97-a40a-7770-8a8f-e2c5840c33e1",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Gyumin Sim <gyumin.sim@privatenote.co.kr>"
+    }
+  }
+}
