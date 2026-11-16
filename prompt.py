@@ -710,12 +710,65 @@ def _is_recovery_nudge(message: dict[str, Any]) -> bool:
     )
 
 
+_SUMMARY_PREFIXES = (
+    "[CONTEXT COMPACTION — REFERENCE ONLY]",
+    "[CONTEXT SUMMARY]:",
+    "[PRIOR CONTEXT — for reference only; not a new message]",
+)
+_SUMMARY_END = "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---"
+_INFLIGHT_REPLAY = (
+    "[STILL IN PROGRESS — this is the active request, restated after the "
+    "compaction boundary because it was not finished yet. Continue it; do not "
+    "start over.]"
+)
+
+
+def _handoff_part_text(part: Any) -> str:
+    if isinstance(part, str):
+        return part
+    if isinstance(part, dict) and isinstance(part.get("text"), str):
+        return part["text"]
+    return ""
+
+
+def _is_compaction_handoff(message: dict[str, Any]) -> bool:
+    # Private metadata is stripped before the provider sees a request. These
+    # content boundaries are also Hermes' durable SessionDB representation.
+    content = message.get("content")
+    parts = content if isinstance(content, list) else [content]
+    text = "\n".join(_handoff_part_text(part) for part in parts)
+    return bool(message.get("_compressed_summary")) or text.lstrip().startswith(_SUMMARY_PREFIXES)
+
+
+def _user_request_text(message: dict[str, Any]) -> str:
+    """Extract the live request without promoting a compaction handoff."""
+    if _is_recovery_nudge(message):
+        return ""
+    content = message.get("content")
+    if _is_compaction_handoff(message):
+        # An older replay may be quoted INSIDE the summary. Only the request
+        # after its last end boundary is still in progress.
+        parts = content if isinstance(content, list) else [content]
+        for i in range(len(parts) - 1, -1, -1):
+            text = _handoff_part_text(parts[i])
+            _, boundary, remainder = text.rpartition(_SUMMARY_END)
+            if boundary:
+                # Extract BEFORE media normalization: an older image reference
+                # in the summary must not deduplicate the active attachment.
+                content = [{"type": "text", "text": remainder}, *parts[i + 1:]]
+                break
+        else:
+            return ""
+    text = _render_message_content(content).strip()
+    return text.removeprefix(_INFLIGHT_REPLAY).strip()
+
+
 def _latest_user_text(messages: Sequence[Any]) -> str:
-    """Return the rendered text of the last user message, or an empty string."""
+    """Return the latest live user request, including a post-compaction replay."""
     for msg in reversed(list(messages or [])):
         if isinstance(msg, dict) and str(msg.get("role") or "").strip().lower() == "user":
-            if not _is_recovery_nudge(msg):
-                return _render_message_content(msg.get("content"))
+            if text := _user_request_text(msg):
+                return text
     return ""
 
 
@@ -750,6 +803,70 @@ def _tool_loop_objective_section(user_text: str) -> str:
         "When tool execution is complete, your final answer must directly address this objective. "
         "Do NOT repeat earlier completion reports, summaries, or boilerplate from previous tasks, "
         "and do NOT resume an earlier task."
+    )
+
+
+def _skill_state_section(messages: Sequence[Any]) -> str:
+    """Describe only skill bodies proven present in the canonical history.
+
+    A later full reload supersedes an earlier pruning marker for that exact
+    skill/file. Never infer availability from a summary, an unchanged stub,
+    a failed load, or the native worker's private history.
+    """
+    calls: dict[str, tuple[str, str]] = {}
+    loaded: dict[tuple[str, str], str] = {}
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        for call in message.get("tool_calls") or []:
+            if not isinstance(call, dict):
+                continue
+            fn = call.get("function") or {}
+            if fn.get("name") != "skill_view":
+                continue
+            try:
+                args = fn.get("arguments") or {}
+                args = json.loads(args) if isinstance(args, str) else args
+                if isinstance(args, dict) and isinstance(args.get("name"), str):
+                    calls[call.get("id")] = (args["name"], str(args.get("file_path") or ""))
+            except (ValueError, TypeError):
+                continue
+        if message.get("role") != "tool":
+            continue
+        ident = message.get("tool_call_id")
+        key = calls.get(ident)
+        if key is None:
+            continue
+        body = message.get("content")
+        if not isinstance(body, str):
+            continue
+        if body.lstrip().startswith("[SKILL_PRUNED:"):
+            loaded.pop(key, None)
+            continue
+        try:
+            # Hermes may append a bracketed read/dedup notice after the JSON.
+            # Inspect the complete leading object without changing that notice
+            # or any content actually sent to the model.
+            result, _ = json.JSONDecoder().raw_decode(body.lstrip())
+        except ValueError:
+            continue
+        if (isinstance(result, dict) and result.get("success") is True
+                and isinstance(result.get("content"), str) and result["content"].strip()):
+            loaded[key] = str(ident)
+    if not loaded:
+        return ""
+    entries = [
+        json.dumps({"name": name, "file_path": path or None, "tool_call_id": ident}, ensure_ascii=False)
+        for (name, path), ident in loaded.items()
+    ]
+    return (
+        "### CURRENTLY LOADED SKILLS (verified tool results):\n"
+        + "\n".join(entries)
+        + "\nThese full bodies are present in the supplied conversation. Earlier pruning/reload "
+        "markers for these exact skill files are historical and superseded by the identified "
+        "results. Use the loaded bodies to continue the active request. Reload only for a "
+        "different file or a requested refresh, not to recover bodies already present. "
+        "Skills absent from this list may still need loading."
     )
 
 
@@ -798,7 +915,9 @@ def _format_messages_as_prompt(
     _TOOL_MAX_CHARS_CAP = 20000
 
     transcript: list[str] = []
-    recovery_turn = last_role == "user" and last_msg is not None and _is_recovery_nudge(last_msg)
+    recovery_turn = last_role == "user" and last_msg is not None and (
+        _is_recovery_nudge(last_msg) or _is_compaction_handoff(last_msg)
+    )
     prior_messages = history_messages[:-1] if last_role == "user" and not recovery_turn and len(history_messages) > 1 else history_messages
 
     tool_indices = [
@@ -820,7 +939,7 @@ def _format_messages_as_prompt(
         task_start = next(
             (i for i in range(len(prior_messages) - 1, -1, -1)
              if str(prior_messages[i].get("role") or "").strip().lower() == "user"
-             and not _is_recovery_nudge(prior_messages[i])),
+             and _user_request_text(prior_messages[i])),
             -1,
         )
         protected_tool_indices.update(i for i in tool_indices if i > task_start)
@@ -886,7 +1005,10 @@ def _format_messages_as_prompt(
                 transcript.append("Assistant:\n" + "\n".join(parts))
             continue
 
-        label = _ROLE_LABELS.get(role, "Context")
+        label = (
+            "Compaction handoff (reference only)"
+            if _is_compaction_handoff(message) else _ROLE_LABELS.get(role, "Context")
+        )
         if rendered_content:
             transcript.append(f"{label}:\n{rendered_content}")
 
@@ -895,7 +1017,7 @@ def _format_messages_as_prompt(
         if objective:
             sections.append(_tool_loop_objective_section(objective))
     elif last_role == "user" and last_msg is not None and len(history_messages) > 1:
-        user_text = _render_message_content(last_msg.get("content"), media_sink)
+        user_text = _user_request_text(last_msg)
         sections.append(
             "### ACTIVE OBJECTIVE:\n"
             f"The user has submitted a new request:\n\"{user_text}\"\n\n"
@@ -907,6 +1029,9 @@ def _format_messages_as_prompt(
         pending_objective = _latest_user_text(history_messages)
         if pending_objective:
             sections.append(_tool_loop_objective_section(pending_objective))
+
+    if skill_state := _skill_state_section(history_messages):
+        sections.append(skill_state)
 
     if transcript:
         sections.append("Conversation transcript:\n\n" + "\n\n".join(transcript))
@@ -944,6 +1069,10 @@ def _messages_match_prefix(history: Sequence[dict[str, Any]], incoming: Sequence
             return False
         if inc_msg.get("tool_calls") != h_msg.get("tool_calls"):
             return False
+        if inc_msg.get("tool_call_id") != h_msg.get("tool_call_id"):
+            return False
+        if inc_msg.get("name") != h_msg.get("name"):
+            return False
     return True
 
 
@@ -951,6 +1080,7 @@ def _format_delta_prompt(
     new_messages: Sequence[dict[str, Any]],
     pending_user_text: str = "",
     media_sink: Optional[set] = None,
+    skill_state: str = "",
 ) -> str:
     """Format only the incremental messages in an ongoing multi-turn interaction.
 
@@ -965,13 +1095,15 @@ def _format_delta_prompt(
     last_msg = valid_messages[-1]
     last_role = str(last_msg.get("role") or "").strip().lower()
 
-    recovery_turn = last_role == "user" and _is_recovery_nudge(last_msg)
+    recovery_turn = last_role == "user" and (
+        _is_recovery_nudge(last_msg) or _is_compaction_handoff(last_msg)
+    )
     if last_role == "user" and not recovery_turn:
         prior_messages = valid_messages[:-1]
     else:
         prior_messages = valid_messages
 
-    parts: list[str] = []
+    parts: list[str] = [skill_state] if skill_state else []
     for msg in prior_messages:
         role = str(msg.get("role") or "").strip().lower()
         rendered_content = _render_message_content(msg.get("content"), media_sink)
@@ -1003,7 +1135,10 @@ def _format_delta_prompt(
             if subparts:
                 parts.append("Assistant:\n" + "\n".join(subparts))
             continue
-        label = _ROLE_LABELS.get(role, "Context")
+        label = (
+            "Compaction handoff (reference only)"
+            if _is_compaction_handoff(msg) else _ROLE_LABELS.get(role, "Context")
+        )
         if rendered_content:
             parts.append(f"{label}:\n{rendered_content}")
 
@@ -1017,7 +1152,7 @@ def _format_delta_prompt(
         if pending_user_text:
             parts.append(_pending_user_request_section(pending_user_text))
     elif last_role == "user":
-        user_text = (pending_user_text or _latest_user_text(valid_messages)) if recovery_turn else _render_message_content(last_msg.get("content"), media_sink)
+        user_text = (_latest_user_text(valid_messages) or pending_user_text) if recovery_turn else _user_request_text(last_msg)
         if user_text:
             parts.append(_latest_user_request_section(user_text))
     else:
