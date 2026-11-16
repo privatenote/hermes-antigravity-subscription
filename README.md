@@ -58,6 +58,24 @@ replace that request as the active objective. The provider recognizes the exact
 known core nudge when private message markers have been stripped by the transport.
 A new real user message still supersedes the previous objective.
 
+Compaction handoffs remain background reference. When Hermes merges an unfinished
+request after the summary's end boundary, only that request becomes the active
+objective. A summary without a live request is never promoted to an instruction.
+This also works after private summary metadata is stripped from the wire, and
+prevents repeated copies of old skill-reload markers in every tool-result turn.
+
+The bridge lists only skill files whose complete successful load remains in the
+canonical history. A later reload supersedes an earlier pruning marker for that
+same file; an unchanged stub alone never proves availability. Worker continuation
+also requires an unchanged tool schema and tool choice, and compares an independent
+snapshot of the delivered history so host edits cannot silently reuse stale state.
+
+Pipe reads run behind a bounded per-turn queue so a silent live CLI cannot bypass
+the request deadline. Readers stop at the result event and never consume events
+belonging to the next turn of a persistent worker.
+Concurrent media requests use a separate oneshot process without retiring the busy
+worker. Already granted media rules do not force another worker restart.
+
 Output-token-limit errors are retryable server errors without context compression.
 Trajectory/context exhaustion continues to request compression.
 

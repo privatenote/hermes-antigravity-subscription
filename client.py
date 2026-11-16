@@ -8,6 +8,7 @@ existing Antigravity / Gemini subscription quota.
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 import logging
 import os
@@ -56,6 +57,7 @@ try:
         _ROLE_LABELS,
         _format_delta_prompt,
         _latest_user_text,
+        _skill_state_section,
         _format_messages_as_prompt,
         _longest_tool_call_prefix_match,
         _messages_match_prefix,
@@ -95,6 +97,7 @@ except ImportError:
         _ROLE_LABELS,
         _format_delta_prompt,
         _latest_user_text,
+        _skill_state_section,
         _format_messages_as_prompt,
         _longest_tool_call_prefix_match,
         _messages_match_prefix,
@@ -453,6 +456,7 @@ class AntigravityClient:
         self._worker_history: list[dict[str, Any]] = []
         self._worker_conversation_id: str | None = None
         self._conversation_history: list[dict[str, Any]] = []
+        self._conversation_contract: tuple[Any, Any] | None = None
         # Media rules the LIVE worker's settings.json contained at spawn:
         # agy reads permissions only at spawn, so a turn referencing new
         # media paths must respawn the worker (conversation preserved).
@@ -642,6 +646,7 @@ class AntigravityClient:
         if not keep_conversation:
             self._worker_conversation_id = None
             self._conversation_history = []
+            self._conversation_contract = None
 
     def _terminate_worker(self, keep_conversation: bool = False) -> None:
         with self._lock:
@@ -663,7 +668,9 @@ class AntigravityClient:
 
     def _update_worker_history(self, messages: list[dict[str, Any]] | None) -> None:
         with self._lock:
-            msg_list = list(messages or [])
+            # Core hooks may edit nested content/tool calls in place. A shallow
+            # copy would mutate our evidence of what the worker actually saw.
+            msg_list = copy.deepcopy(list(messages or []))
             self._worker_history = msg_list
             self._conversation_history = msg_list
             self._arm_idle_timer_locked()
@@ -769,7 +776,7 @@ class AntigravityClient:
             return False
         return (cpu_now - cpu_then) < _WORKER_ABANDON_CPU_SECONDS
 
-    def _ensure_worker_media_permissions(self, paths: set[str]) -> None:
+    def _ensure_worker_media_permissions(self, paths: set[str], *, retire_worker: bool = True) -> None:
         """Grant agy's headless read permission for this turn's media paths.
 
         agy auto-denies read_file/view_file without an explicit per-target
@@ -781,15 +788,16 @@ class AntigravityClient:
         """
         if not paths:
             return
-        rules = write_media_read_permissions(self._isolated_gemini_dir, paths)
         with self._lock:
+            rules = write_media_read_permissions(self._isolated_gemini_dir, paths)
             live = (
                 self._worker_proc is not None
                 and self._worker_proc.poll() is None
             )
-            if live and not paths <= self._worker_media_rules:
+            if live and retire_worker and not rules <= self._worker_media_rules:
                 self._terminate_worker_locked(keep_conversation=True)
-            self._worker_media_rules = frozenset(rules)
+            if not live or retire_worker:
+                self._worker_media_rules = frozenset(rules)
 
     def _get_or_spawn_worker(
         self,
@@ -975,6 +983,7 @@ class AntigravityClient:
         effort_param = reasoning_effort or extra_kwargs.get("reasoning_effort")
         resolved_model, effort = self._resolve_model_and_effort(model, effort_param)
         messages_list = list(messages or [])
+        request_contract = (tools, tool_choice)
         # Hermes' streaming caller passes an httpx.Timeout, not a scalar; use
         # its read budget instead of silently falling back to the default.
         if hasattr(timeout, "read"):
@@ -994,10 +1003,16 @@ class AntigravityClient:
         turn_media_paths = media_reference_paths(
             messages_list, self._materialized_media
         )
-        if turn_media_paths:
-            self._ensure_worker_media_permissions(turn_media_paths)
-
         worker_acquired = self._worker_lock.acquire(blocking=False)
+        try:
+            if turn_media_paths:
+                # A concurrent oneshot may need new permissions, but it does
+                # not own the live worker and must never interrupt its turn.
+                self._ensure_worker_media_permissions(turn_media_paths, retire_worker=worker_acquired)
+        except Exception:
+            if worker_acquired:
+                self._worker_lock.release()
+            raise
         if worker_acquired:
             try:
                 with self._lock:
@@ -1006,7 +1021,14 @@ class AntigravityClient:
                         if (self._worker_proc is not None and self._worker_proc.poll() is None)
                         else self._conversation_history
                     )
-                    is_continuation = _messages_match_prefix(ref_history, messages_list)
+                    is_continuation = (
+                        _messages_match_prefix(ref_history, messages_list)
+                        and self._conversation_contract == request_contract
+                        and (
+                            (self._worker_proc is not None and self._worker_proc.poll() is None)
+                            or bool(self._worker_conversation_id)
+                        )
+                    )
                     conv_id_to_resume = self._worker_conversation_id if is_continuation else None
 
                 comparable_full_send = not is_continuation
@@ -1019,6 +1041,7 @@ class AntigravityClient:
                         delta_msgs,
                         pending_user_text=_latest_user_text(messages_list),
                         media_sink=self._materialized_media,
+                        skill_state=_skill_state_section(messages_list),
                     )
                     dump_prompt_debug(
                         prompt=prompt_payload,
@@ -1074,6 +1097,7 @@ class AntigravityClient:
                     proc.stdin.flush()
 
                 with self._lock:
+                    self._conversation_contract = copy.deepcopy(request_contract)
                     worker_usage_baseline = self._worker_usage_baseline
                 stream_iter = AntigravityStream(
                     proc=proc,
