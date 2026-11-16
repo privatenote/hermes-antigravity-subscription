@@ -1,0 +1,21 @@
+prompt.py
+  s_1711b1d53f9eec::t_130d762f5f6b00 814-842,849-851
+tests/test_current_task_tool_results.py
+  s_1711b1d53f9eec::t_9e8422802375a6 1-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "649663a868592251a05589878b30716bc30791d9",
+  "prompts": {},
+  "sessions": {
+    "s_1711b1d53f9eec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1dd97-a40a-7770-8a8f-e2c5840c33e1",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Gyumin Sim <gyumin.sim@privatenote.co.kr>"
+    }
+  }
+}
