@@ -1,0 +1,32 @@
+tests/test_worker_history_identity.py
+  s_1711b1d53f9eec::t_1ca910b56753f3 33,47,68-69,83-120
+  s_1711b1d53f9eec::t_b4b63425c57682 1-32,34-46,48-67,70-82
+client.py
+  s_1711b1d53f9eec::t_51aa37266d7b40 779,792,799-800,1007-1015,1027-1030
+  s_1711b1d53f9eec::t_1ca910b56753f3 797
+  s_1711b1d53f9eec::t_c9c7d6a2ae0362 11,459,649,671-673,986,1024-1026,1100
+  s_1711b1d53f9eec::t_408c6508137527 60,100,1044
+  s_1711b1d53f9eec::t_451c0b4d62ea86 1031
+docs/privatenote-transport-review.md
+  s_1711b1d53f9eec::t_36745f67aedead 1-62
+README.md
+  s_1711b1d53f9eec::t_366b1cc9f83584 61-66
+  s_1711b1d53f9eec::t_91a233a0d0e24c 67-75,78
+  s_1711b1d53f9eec::t_19eaf13622c25a 76-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "18004f3a25efe764eaa4d57f1ab575aed5f82d01",
+  "prompts": {},
+  "sessions": {
+    "s_1711b1d53f9eec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1dd97-a40a-7770-8a8f-e2c5840c33e1",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Gyumin Sim <gyumin.sim@privatenote.co.kr>"
+    }
+  }
+}
