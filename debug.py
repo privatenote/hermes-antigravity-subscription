@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import json
 import logging
 import os
 from pathlib import Path
@@ -14,6 +16,47 @@ logger = logging.getLogger(__name__)
 
 _counter = 0
 _counter_lock = threading.Lock()
+
+
+def capture_tool_protocol_failure(text: str, phase: str, model: str | None = None) -> None:
+    """Log parse metadata; retain the raw frame only in the opted-in private dump.
+
+    Do not repair or execute malformed calls. Diagnostics must not replace the
+    original protocol error, even when the private directory cannot be written.
+    """
+    details: dict[str, Any] = {
+        "phase": phase,
+        "chars": len(text),
+        "sha256": hashlib.sha256(text.encode("utf-8", errors="surrogatepass")).hexdigest(),
+    }
+    start = text.find("<tool_call>")
+    end = text.rfind("</tool_call>")
+    if start < 0 or end < start:
+        details["failure"] = "incomplete_frame"
+    else:
+        body = text[start + len("<tool_call>"):end].strip()
+        try:
+            obj = json.loads(body)
+        except json.JSONDecodeError as exc:
+            details.update(failure="invalid_json", json_error=exc.msg,
+                           line=exc.lineno, column=exc.colno, position=exc.pos)
+        else:
+            fn = obj.get("function") if isinstance(obj, dict) else None
+            if not isinstance(obj, dict):
+                details["failure"] = "non_object_call"
+            elif not isinstance(fn, dict):
+                details["failure"] = "missing_function_object"
+            elif not isinstance(fn.get("name"), str) or not fn["name"].strip():
+                details["failure"] = "missing_function_name"
+            else:
+                details["failure"] = "unconsumed_frame"
+    metadata = json.dumps(details, sort_keys=True)
+    path = dump_prompt_debug(
+        prompt="Protocol failure metadata: " + metadata + "\n\n" + text,
+        branch="protocol-" + ("incomplete" if phase == "incomplete" else "invalid"),
+        model=model,
+    )
+    logger.warning("Antigravity tool protocol failure: %s private_dump=%s", metadata, path)
 
 
 def _reset_counter(val: int = 0) -> None:

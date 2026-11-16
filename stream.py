@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from typing import Any, Iterator, NamedTuple
 
 try:
+    from .debug import capture_tool_protocol_failure
     from .process import TurnStdoutReader, _check_early_quota_error
     from .prompt import (
         _TOOL_CALL_CLOSE,
@@ -27,6 +28,7 @@ try:
         media_reference_paths,
     )
 except ImportError:
+    from debug import capture_tool_protocol_failure
     from process import TurnStdoutReader, _check_early_quota_error
     from prompt import (
         _TOOL_CALL_CLOSE,
@@ -831,6 +833,7 @@ class AntigravityStream(Iterator[Any]):
                                             and self.has_tools
                                             and _has_unparseable_tool_call_frame(block)
                                         ):
+                                            capture_tool_protocol_failure(block, "invalid", self.model)
                                             raise RuntimeError(
                                                 "Antigravity execution failed: "
                                                 "invalid tool call block in stream"
@@ -943,6 +946,7 @@ class AntigravityStream(Iterator[Any]):
                     or (text_buffer and _has_unfinished_tool_call_frame(text_buffer))
                 )
             ):
+                capture_tool_protocol_failure(text_buffer, "incomplete", self.model)
                 raise RuntimeError(
                     "Antigravity execution failed: incomplete tool call block "
                     f"in stream ({stop_detail})"
@@ -961,6 +965,7 @@ class AntigravityStream(Iterator[Any]):
                 and text_buffer
                 and _has_unparseable_tool_call_frame(text_buffer)
             ):
+                capture_tool_protocol_failure(text_buffer, "invalid", self.model)
                 raise RuntimeError(
                     "Antigravity execution failed: invalid tool call block "
                     f"in stream ({stop_detail})"

@@ -1021,15 +1021,19 @@ class AntigravityClient:
                         if (self._worker_proc is not None and self._worker_proc.poll() is None)
                         else self._conversation_history
                     )
-                    is_continuation = (
-                        _messages_match_prefix(ref_history, messages_list)
-                        and self._conversation_contract == request_contract
-                        and (
-                            (self._worker_proc is not None and self._worker_proc.poll() is None)
-                            or bool(self._worker_conversation_id)
-                        )
-                    )
+                    history_matches = _messages_match_prefix(ref_history, messages_list)
+                    contract_matches = self._conversation_contract == request_contract
+                    worker_alive = self._worker_proc is not None and self._worker_proc.poll() is None
+                    resumable = bool(self._worker_conversation_id)
+                    is_continuation = history_matches and contract_matches and (worker_alive or resumable)
                     conv_id_to_resume = self._worker_conversation_id if is_continuation else None
+                    logger.info(
+                        "Antigravity turn routing: model=%s effort=%s branch=%s history_match=%s "
+                        "contract_match=%s worker_alive=%s resumable=%s previous_messages=%d messages=%d",
+                        resolved_model, effort, "delta" if is_continuation else "full",
+                        history_matches, contract_matches, worker_alive, resumable,
+                        len(ref_history), len(messages_list),
+                    )
 
                 comparable_full_send = not is_continuation
                 if is_continuation:
@@ -1070,6 +1074,11 @@ class AntigravityClient:
                     )
 
                 event_msg = {"event": "user", "message": {"content": prompt_payload}}
+                logger.info(
+                    "Antigravity prompt send: branch=%s prompt_chars=%d worker_pid=%s conversation=%s",
+                    "delta" if is_continuation else "full", len(prompt_payload),
+                    getattr(proc, "pid", None), conv_id_to_resume,
+                )
                 try:
                     proc.stdin.write(json.dumps(event_msg) + "\n")
                     proc.stdin.flush()

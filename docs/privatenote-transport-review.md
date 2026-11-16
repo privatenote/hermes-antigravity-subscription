@@ -60,3 +60,20 @@ It does not establish end-to-end completion of the original private task. A nati
 CLI can still alter or limit the context it forwards; a successful local prompt
 assembly alone cannot prove every token reached the model. Keep Hermes' loop
 guardrails enabled.
+
+## Live-run diagnostic follow-up
+
+A subsequent real run reached compaction and asynchronous Writer delegation,
+but had not completed independent review when the follow-up investigation began.
+It also encountered `invalid tool call block in stream` and retried. This is
+evidence that the earlier synthetic probe does not establish production reliability.
+
+Turn routing now records full/delta selection, history and tool-contract matches,
+worker liveness and the transmitted character count without logging message bodies.
+Malformed or incomplete tool frames retain their existing error behavior and record
+parse category, JSON position and a content hash. With
+`ANTIGRAVITY_DEBUG_PROMPT_DIR` enabled, the exact failed frame is preserved alongside
+prompt dumps (directory 0700, files 0600); its content is absent from normal logs.
+Keep these incident artifacts outside Git. The official `agy --help` also exposes
+`--log-file`; existing CLI logs and trajectory backups can be collected privately
+without restarting an active gateway.
