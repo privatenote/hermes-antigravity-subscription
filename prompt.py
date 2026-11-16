@@ -536,8 +536,8 @@ _PROMPT_PREAMBLE = (
     "All tool executions and filesystem interactions are performed exclusively by Hermes Agent on the host side.",
     "IMPORTANT INSTRUCTIONS FOR TOOLS:",
     "- If you need to call a tool, emit ONLY <tool_call>{...}</tool_call> blocks in your text output.",
-    "- Each tool call must be a JSON object containing 'id', 'type': 'function', and 'function': {'name': '...', 'arguments': '...'}.",
-    "- 'arguments' must be a JSON-encoded string containing the function arguments.",
+    "- Each tool call must be a JSON object containing 'id', 'type': 'function', and 'function': {'name': '...', 'arguments': {...}}.",
+    "- 'arguments' must be a JSON object, NOT a string containing another JSON document. Encode the call once; escape quotes, backslashes and newlines inside string values using normal JSON rules.",
     "- Do NOT execute local shell commands or file operations directly; only output <tool_call> tags so Hermes can execute them safely.",
     "- NEVER simulate or hallucinate Tool Results (e.g. 'Tool Result (...):'). Hermes Agent executes tools externally and will supply real results in subsequent turns.",
     "- After emitting tool calls, STOP generating immediately. Do NOT generate results, execution output, or commentary after tool calls.",
@@ -806,6 +806,30 @@ def _tool_loop_objective_section(user_text: str) -> str:
     )
 
 
+def _tool_call_for_prompt(call: dict[str, Any]) -> dict[str, Any]:
+    """Render historical calls in the same single-encoding form we request.
+
+    Hermes' OpenAI-shaped history stores arguments as a JSON string. Decode
+    only valid objects for display; never rewrite the canonical host history.
+    The response parser continues accepting the legacy string representation.
+    """
+    fn = call.get("function") or {}
+    arguments = fn.get("arguments", {})
+    if isinstance(arguments, str):
+        try:
+            decoded = json.loads(arguments)
+        except (TypeError, ValueError):
+            pass
+        else:
+            if isinstance(decoded, dict):
+                arguments = decoded
+    return {
+        "id": call.get("id") or "call_1",
+        "type": "function",
+        "function": {"name": fn.get("name", ""), "arguments": arguments},
+    }
+
+
 def _skill_state_section(messages: Sequence[Any]) -> str:
     """Describe only skill bodies proven present in the canonical history.
 
@@ -879,8 +903,19 @@ def _format_messages_as_prompt(
 ) -> str:
     """Assemble Hermes message history, system prompt, and tool schemas into a canonical prompt."""
     try:
-        from agent.acp_openai_bridge import render_tool_bridge_sections
-        tool_sections = render_tool_bridge_sections(tools, tool_choice)
+        from agent.acp_openai_bridge import tool_specs_from_openai_tools
+        specs = tool_specs_from_openai_tools(tools)
+        tool_sections = []
+        if specs:
+            tool_sections.append(
+                "Available tools (OpenAI function schema). Emit each call as "
+                "<tool_call>{\"id\":\"...\",\"type\":\"function\",\"function\":"
+                "{\"name\":\"...\",\"arguments\":{...}}}</tool_call>. "
+                "arguments must be a JSON object, not a JSON string.\n"
+                + json.dumps(specs, ensure_ascii=False)
+            )
+        if tool_choice is not None:
+            tool_sections.append(f"Tool choice hint: {json.dumps(tool_choice, ensure_ascii=False)}")
     except Exception:
         tool_sections = []
         if tools:
@@ -991,15 +1026,7 @@ def _format_messages_as_prompt(
             if tool_calls := message.get("tool_calls"):
                 for tc in tool_calls:
                     if isinstance(tc, dict):
-                        fn = tc.get("function") or {}
-                        call_obj = {
-                            "id": tc.get("id") or "call_1",
-                            "type": "function",
-                            "function": {
-                                "name": fn.get("name", ""),
-                                "arguments": fn.get("arguments", "{}") if isinstance(fn.get("arguments"), str) else json.dumps(fn.get("arguments", {}), ensure_ascii=False)
-                            }
-                        }
+                        call_obj = _tool_call_for_prompt(tc)
                         parts.append(f"<tool_call>{json.dumps(call_obj, ensure_ascii=False)}</tool_call>")
             if parts:
                 transcript.append("Assistant:\n" + "\n".join(parts))
@@ -1122,15 +1149,7 @@ def _format_delta_prompt(
             if tool_calls := msg.get("tool_calls"):
                 for tc in tool_calls:
                     if isinstance(tc, dict):
-                        fn = tc.get("function") or {}
-                        call_obj = {
-                            "id": tc.get("id") or "call_1",
-                            "type": "function",
-                            "function": {
-                                "name": fn.get("name", ""),
-                                "arguments": fn.get("arguments", "{}") if isinstance(fn.get("arguments"), str) else json.dumps(fn.get("arguments", {}), ensure_ascii=False)
-                            }
-                        }
+                        call_obj = _tool_call_for_prompt(tc)
                         subparts.append(f"<tool_call>{json.dumps(call_obj, ensure_ascii=False)}</tool_call>")
             if subparts:
                 parts.append("Assistant:\n" + "\n".join(subparts))

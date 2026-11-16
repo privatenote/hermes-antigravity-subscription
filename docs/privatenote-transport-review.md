@@ -77,3 +77,24 @@ prompt dumps (directory 0700, files 0600); its content is absent from normal log
 Keep these incident artifacts outside Git. The official `agy --help` also exposes
 `--log-file`; existing CLI logs and trajectory backups can be collected privately
 without restarting an active gateway.
+
+## Closeout before the replacement transport
+
+The subsequent production run reproduced two distinct failures. A long
+`write_file` response contained an unescaped quotation mark inside the nested
+JSON argument string. Another single native response contained 51 tool-call
+frames and 85 claimed `Tool Result` sections, although Hermes had not executed
+those calls during that response. Hiding the claimed results from the visible
+answer does not stop generation or prevent later simulated calls from being
+parsed. These are limitations of the text bridge, not evidence of successful
+independent review.
+
+New prompts and rendered historical examples now use object-valued `arguments`
+to avoid encoding an entire JSON document inside another JSON string. The
+parser retains legacy string support. This reduces encoding complexity but does
+not solve the simulated continuation problem; it is not an end-to-end fix.
+
+Private input and ordinary response artifacts remain on the internal server.
+No private task is included in this repository. The replacement implementation
+is maintained separately at
+[privatenote/hermes-plugin-antigravity-subscription-directsdk](https://github.com/privatenote/hermes-plugin-antigravity-subscription-directsdk).
